@@ -1,12 +1,10 @@
 use std::{
-    clone,
     error::Error,
     io::Read,
     net::{TcpListener, TcpStream},
 };
 
-use kvstore::protocol;
-use kvstore::state::RuntimeState;
+use kvstore::store::KVStore;
 
 const ADDRESS: &str = "127.0.0.1:5555";
 
@@ -14,19 +12,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let listener =
         TcpListener::bind(ADDRESS).unwrap_or_else(|_| panic!("Error listening on {ADDRESS}"));
 
-    let state: RuntimeState = RuntimeState::new();
+    let mut store: KVStore = KVStore::new();
 
     for stream in listener.incoming() {
         let stream = stream.unwrap(); // Okay, as iterator never returns None
 
         // TODO: thread pool stuff
-        handle_connection(stream, &state)?;
+        handle_connection(stream, &mut store)?;
     }
 
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream, state: &RuntimeState) -> Result<(), Box<dyn Error>> {
+fn handle_connection(mut stream: TcpStream, store: &mut KVStore) -> Result<(), Box<dyn Error>> {
     let mut buffer = [0; 1024];
 
     loop {
@@ -40,7 +38,7 @@ fn handle_connection(mut stream: TcpStream, state: &RuntimeState) -> Result<(), 
 
         for command in commands {
             // TODO: error handling/response
-            protocol::exec_command(command);
+            store.exec_command(command);
         }
     }
 

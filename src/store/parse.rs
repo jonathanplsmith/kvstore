@@ -1,17 +1,11 @@
-use std::fmt::Display;
+use std::fmt::Debug;
 
-pub enum Reponse {
-    Ok,
-    Err,
-    Value(String),
-}
-
-enum Command<'a> {
+pub enum Command<'a> {
     Get(&'a [u8]),
     Set(&'a [u8], &'a [u8]),
 }
 
-impl<'a> Display for Command<'a> {
+impl<'a> Debug for Command<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Get(key) => {
@@ -27,13 +21,7 @@ impl<'a> Display for Command<'a> {
     }
 }
 
-pub fn exec_command(command: &[u8]) -> Option<Reponse> {
-    let res = parse_command(command)?;
-    eprintln!("{res}");
-    Some(Reponse::Ok)
-}
-
-fn parse_command(command: &[u8]) -> Option<Command> {
+pub fn parse_command(command: &[u8]) -> Option<Command> {
     if command.len() >= 3 {
         let operation = &command[0..3];
         if operation == [b'G', b'E', b'T'] {
@@ -47,6 +35,7 @@ fn parse_command(command: &[u8]) -> Option<Command> {
 
 fn parse_get(command: &[u8]) -> Option<Command> {
     let (key, _) = parse_string(command)?;
+    // potentially assert command fully used
 
     Some(Command::Get(key))
 }
@@ -55,6 +44,7 @@ fn parse_set(command: &[u8]) -> Option<Command> {
     let (key, next) = parse_string(command)?;
     let (value, _) = parse_string(next)?;
 
+    // potentially assert command fully used
     Some(Command::Set(key, value))
 }
 
