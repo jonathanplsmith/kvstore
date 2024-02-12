@@ -1,4 +1,4 @@
-use crate::parse::{self, Command};
+use crate::parse::Command;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(PartialEq, Eq, Debug)]
@@ -32,30 +32,25 @@ impl KVStore {
         self.data.get(key).cloned()
     }
 
-    fn insert(&mut self, key: &[u8], value: &[u8]) {
-        // into possibly bad?
-        self.data.insert(key.into(), Arc::from(value));
+    fn insert(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.data.insert(key.into(), value.into());
     }
 
-    /// Tries to execute the given command.
-    /// Returns `None` if the byte sequence does not represent a valid command.
-    pub fn exec_command(&mut self, command: &[u8]) -> Option<Reponse> {
-        let res = parse::parse_command(command)?;
-
-        Some(match res {
+    pub fn exec_command(&mut self, command: Command) -> Reponse {
+        match command {
             Command::Get(key) => self.exec_get(key),
             Command::Set(key, value) => self.exec_set(key, value),
-        })
+        }
     }
 
-    fn exec_get(&self, key: &[u8]) -> Reponse {
-        match self.lookup(key) {
+    fn exec_get(&self, key: Vec<u8>) -> Reponse {
+        match self.lookup(&key) {
             Some(val) => Reponse::Value(val),
             None => Reponse::Err,
         }
     }
 
-    fn exec_set(&mut self, key: &[u8], value: &[u8]) -> Reponse {
+    fn exec_set(&mut self, key: Vec<u8>, value: Vec<u8>) -> Reponse {
         self.insert(key, value);
 
         Reponse::Ok
