@@ -33,9 +33,21 @@ pub fn parse_command(command: &[u8]) -> Option<Command> {
     None
 }
 
+// TODO: potentially change this to Box<[u8]>?
+pub fn binary_safe_encode(string: &[u8]) -> Vec<u8> {
+    let mut ret = Vec::from(string);
+    let length = string.len().to_string();
+    let len_bytes = length.bytes();
+    ret.insert(0, b'$');
+    ret.splice(0..0, len_bytes);
+    ret.insert(0, b'$');
+
+    ret
+}
+
 fn parse_get(command: &[u8]) -> Option<Command> {
     let (key, _) = parse_string(command)?;
-    // potentially assert command fully used
+    // TODO: potentially assert command fully used
 
     Some(Command::Get(key))
 }
@@ -44,7 +56,7 @@ fn parse_set(command: &[u8]) -> Option<Command> {
     let (key, next) = parse_string(command)?;
     let (value, _) = parse_string(next)?;
 
-    // potentially assert command fully used
+    // TODO: potentially assert command fully used
     Some(Command::Set(key, value))
 }
 
@@ -67,11 +79,29 @@ fn parse_string(command: &[u8]) -> Option<(&[u8], &[u8])> {
         }
     }
 
+    if length == 0 {
+        return None; // must be None, as the first digit needs to be at least 1
+    }
+
     if int_digits + length <= command.len() {
         let string = &command[int_digits..int_digits + length];
         let next = &command[int_digits + length..];
         Some((string, next))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::binary_safe_encode;
+
+    #[test]
+    fn encode_1() {
+        let hello = "Hello, World!";
+
+        let enc = binary_safe_encode(hello.as_bytes());
+
+        assert_eq!("$13$Hello, World!".as_bytes(), enc);
     }
 }

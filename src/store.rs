@@ -1,12 +1,21 @@
-mod parse;
-
-use parse::Command;
+use crate::parse::{self, Command};
 use std::{collections::HashMap, sync::Arc};
 
+#[derive(PartialEq, Eq, Debug)]
 pub enum Reponse {
     Ok,
     Err,
     Value(Arc<[u8]>),
+}
+
+impl Reponse {
+    pub fn unwrap(self) -> Arc<[u8]> {
+        if let Self::Value(v) = self {
+            v
+        } else {
+            panic!("Cannot unwrap Ok or Err!");
+        }
+    }
 }
 pub struct KVStore {
     data: HashMap<Box<[u8]>, Arc<[u8]>>,
