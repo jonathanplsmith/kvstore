@@ -41,7 +41,6 @@ impl KVStore {
     /// Returns `None` if the byte sequence does not represent a valid command.
     pub fn exec_command(&mut self, command: &[u8]) -> Option<Reponse> {
         let res = parse::parse_command(command)?;
-        dbg!(&res);
 
         Some(match res {
             Command::Get(key) => self.exec_get(key),

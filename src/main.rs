@@ -1,12 +1,13 @@
 use std::{
     error::Error,
-    io::Read,
+    io::{self, BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
 };
 
-use kvstore::store::KVStore;
+use kvstore::{encode, store::KVStore};
 
 const ADDRESS: &str = "127.0.0.1:5555";
+const BUFSIZE: usize = 1 << 25;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let listener =
@@ -24,21 +25,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream, store: &mut KVStore) -> Result<(), Box<dyn Error>> {
-    let mut buffer = [0; 1024];
+fn handle_connection(stream: TcpStream, store: &mut KVStore) -> io::Result<()> {
+    let mut stream_write = stream.try_clone()?;
+    let buffer = BufReader::with_capacity(BUFSIZE, stream);
 
-    loop {
-        let size = stream.read(&mut buffer)?;
-        if size == 0 {
-            eprintln!("Connection closed");
-            break;
-        }
-
-        let commands: Vec<&[u8]> = buffer[0..size].split(|&b| b == b'\n').collect();
-
-        for command in commands {
-            // TODO: error handling/response
-            store.exec_command(command);
+    for command_res in buffer.lines() {
+        match command_res {
+            Ok(command) => {
+                let bytes = command.as_bytes();
+                if let Some(resp) = store.exec_command(bytes) {
+                    let encoded = encode::encode_response(resp);
+                    stream_write.write_all(&encoded)?
+                } else {
+                    stream_write.shutdown(std::net::Shutdown::Both)?;
+                    break;
+                }
+            }
+            Err(e) => return Err(e),
         }
     }
 
