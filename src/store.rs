@@ -17,6 +17,7 @@ impl Reponse {
         }
     }
 }
+
 pub struct KVStore {
     data: HashMap<Box<[u8]>, Arc<[u8]>>,
 }
@@ -40,6 +41,8 @@ impl KVStore {
         match command {
             Command::Get(key) => self.exec_get(key),
             Command::Set(key, value) => self.exec_set(key, value),
+            Command::Delete(key) => self.exec_delete(key),
+            Command::Clear => self.exec_clear(),
         }
     }
 
@@ -52,6 +55,19 @@ impl KVStore {
 
     fn exec_set(&mut self, key: Vec<u8>, value: Vec<u8>) -> Reponse {
         self.insert(key, value);
+
+        Reponse::Ok
+    }
+
+    fn exec_delete(&mut self, key: Vec<u8>) -> Reponse {
+        match self.data.remove(key.as_slice()) {
+            Some(_) => Reponse::Ok,
+            None => Reponse::Err,
+        }
+    }
+
+    fn exec_clear(&mut self) -> Reponse {
+        self.data.clear();
 
         Reponse::Ok
     }

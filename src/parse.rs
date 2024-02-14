@@ -7,6 +7,8 @@ const MAX_DATA_LEN: usize = 1 << 25;
 pub enum Command {
     Get(Vec<u8>),
     Set(Vec<u8>, Vec<u8>),
+    Delete(Vec<u8>),
+    Clear,
 }
 
 impl Debug for Command {
@@ -20,6 +22,13 @@ impl Debug for Command {
                 let k = std::str::from_utf8(key).unwrap_or("[Invalid ASCII]");
                 let v = std::str::from_utf8(value).unwrap_or("[Invalid ASCII]");
                 write!(f, "Set {k} {v}")
+            }
+            Self::Delete(key) => {
+                let k = std::str::from_utf8(key).unwrap_or("[Invalid ASCII]");
+                write!(f, "Delete {k}")
+            }
+            Self::Clear => {
+                write!(f, "Purge")
             }
         }
     }
@@ -52,13 +61,16 @@ impl<R: Read> CommandStream<R> {
             return Err(ParseError::NeedMoreData);
         }
         let operation = &self.buffer[0..3];
+        self.start_idx = 3;
         let ret;
-        if operation == [b'G', b'E', b'T'] {
-            self.start_idx = 3;
+        if operation == "GET".as_bytes() {
             ret = self.parse_get()?;
-        } else if operation == [b'S', b'E', b'T'] {
-            self.start_idx = 3;
+        } else if operation == "SET".as_bytes() {
             ret = self.parse_set()?;
+        } else if operation == "DEL".as_bytes() {
+            ret = self.parse_delete()?;
+        } else if operation == "CLR".as_bytes() {
+            ret = Command::Clear;
         } else {
             return Err(ParseError::InvalidPrefix);
         }
@@ -90,6 +102,12 @@ impl<R: Read> CommandStream<R> {
         let value = self.parse_string()?;
 
         Ok(Command::Set(key, value))
+    }
+
+    fn parse_delete(&mut self) -> Result<Command, ParseError> {
+        let key = self.parse_string()?;
+
+        Ok(Command::Delete(key))
     }
 
     fn parse_string(&mut self) -> Result<Vec<u8>, ParseError> {
@@ -137,21 +155,24 @@ impl<R: Read> Iterator for CommandStream<R> {
     type Item = Command;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // try to parse what's already in the buffer
         match self.parse_command() {
             Ok(command) => return Some(command),
             Err(ParseError::InvalidPrefix) => return None,
             _ => (),
         }
+
+        // only read if necessary
         let mut read_buf = [0; 4096];
         loop {
             match self.reader.read(&mut read_buf) {
                 Ok(0) => {
-                    // End of stream
+                    // end of stream
                     if self.buffer.is_empty() {
                         return None;
                     }
 
-                    // Try to parse what's left in the buffer
+                    // try to parse what's left in the buffer
                     return self.parse_command().ok();
                 }
                 Ok(n) => {
