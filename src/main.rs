@@ -1,30 +1,33 @@
+use kvstore::{encode, parse::CommandStream, store::KVStore};
 use std::{
     error::Error,
     io::{self, BufReader, BufWriter, Write},
     net::{TcpListener, TcpStream},
+    sync::{Arc, Mutex},
 };
-
-use kvstore::{encode, parse::CommandStream, store::KVStore};
+use threadpool::ThreadPool;
 
 const ADDRESS: &str = "127.0.0.1:5555";
+const NUM_THREADS: usize = 32;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let listener =
         TcpListener::bind(ADDRESS).unwrap_or_else(|_| panic!("Error listening on {ADDRESS}"));
 
-    let mut store: KVStore = KVStore::new();
+    let pool = ThreadPool::new(NUM_THREADS);
+    let store = Arc::new(Mutex::new(KVStore::new()));
 
     for stream in listener.incoming() {
         let stream = stream?;
+        let store = store.clone();
 
-        // TODO: thread pool stuff
-        handle_connection(stream, &mut store)?;
+        pool.execute(move || handle_connection(stream, store).unwrap());
     }
 
     Ok(())
 }
 
-fn handle_connection(stream: TcpStream, store: &mut KVStore) -> io::Result<()> {
+fn handle_connection(stream: TcpStream, store: Arc<Mutex<KVStore>>) -> io::Result<()> {
     std::thread::sleep(std::time::Duration::from_millis(10));
 
     let reader = BufReader::new(&stream);
@@ -32,7 +35,7 @@ fn handle_connection(stream: TcpStream, store: &mut KVStore) -> io::Result<()> {
     let commands = CommandStream::new(reader);
 
     for command in commands {
-        let res = store.exec_command(command);
+        let res = store.lock().unwrap().exec_command(command);
         let encoded = encode::encode_response(res);
         writer.write_all(&encoded)?;
     }
