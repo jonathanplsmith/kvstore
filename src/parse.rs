@@ -1,6 +1,7 @@
 use std::{fmt::Debug, io::Read};
 
 const BUF_SIZE: usize = 1 << 25;
+const MAX_DATA_LEN: usize = 1 << 25;
 
 #[derive(Clone)]
 pub enum Command {
@@ -27,6 +28,7 @@ impl Debug for Command {
 pub struct CommandStream<R: Read> {
     reader: R,
     buffer: Vec<u8>,
+    start_idx: usize,
 }
 
 enum ParseError {
@@ -39,15 +41,12 @@ impl<R: Read> CommandStream<R> {
         Self {
             reader,
             buffer: Vec::with_capacity(BUF_SIZE),
+            start_idx: 0,
         }
     }
 
     fn parse_command(&mut self) -> Result<Command, ParseError> {
-        // reminder: Must drain on matching success!
-        // Current Issue: Parsing is too eager to consume!
-        // unsafe {
-        //     dbg!(std::str::from_utf8_unchecked(&self.buffer));
-        // }
+        self.start_idx = 0;
 
         if self.buffer.len() < 3 {
             return Err(ParseError::NeedMoreData);
@@ -55,26 +54,33 @@ impl<R: Read> CommandStream<R> {
         let operation = &self.buffer[0..3];
         let ret;
         if operation == [b'G', b'E', b'T'] {
-            self.buffer.drain(0..3);
+            self.start_idx = 3;
             ret = self.parse_get()?;
         } else if operation == [b'S', b'E', b'T'] {
-            self.buffer.drain(0..3);
+            self.start_idx = 3;
             ret = self.parse_set()?;
         } else {
             return Err(ParseError::InvalidPrefix);
         }
 
-        if *self.buffer.first().ok_or(ParseError::NeedMoreData)? != b'\n' {
+        // make sure newline present at the end of the command
+        if *self
+            .buffer
+            .get(self.start_idx)
+            .ok_or(ParseError::NeedMoreData)?
+            != b'\n'
+        {
             return Err(ParseError::InvalidPrefix);
         }
-        self.buffer.remove(0);
+
+        // drain buffer upon total matching success; + 1 because of newline
+        self.buffer.drain(0..self.start_idx + 1);
 
         Ok(ret)
     }
 
     fn parse_get(&mut self) -> Result<Command, ParseError> {
         let key = self.parse_string()?;
-        // TODO: potentially assert command fully used -> should be covered by refactor?
 
         Ok(Command::Get(key))
     }
@@ -83,13 +89,12 @@ impl<R: Read> CommandStream<R> {
         let key = self.parse_string()?;
         let value = self.parse_string()?;
 
-        // TODO: potentially assert command fully used -> should be covered by refactor?
         Ok(Command::Set(key, value))
     }
 
     fn parse_string(&mut self) -> Result<Vec<u8>, ParseError> {
         // Note: per the spec <int> ::= [1-9] ([0-9])*
-        let mut iter = self.buffer.iter();
+        let mut iter = self.buffer.iter().skip(self.start_idx);
 
         let mut data_length: usize = 0;
         let mut prefix_length: usize = 2;
@@ -101,7 +106,7 @@ impl<R: Read> CommandStream<R> {
                     }
                     let num = (next as char)
                         .to_digit(10)
-                        .ok_or(ParseError::NeedMoreData)?;
+                        .ok_or(ParseError::InvalidPrefix)?;
                     if data_length == 0 && num == 0 {
                         return Err(ParseError::InvalidPrefix);
                     }
@@ -111,12 +116,18 @@ impl<R: Read> CommandStream<R> {
             }
         }
 
-        if data_length == 0 || prefix_length + data_length > self.buffer.len() {
+        if data_length == 0 || data_length > MAX_DATA_LEN {
             return Err(ParseError::InvalidPrefix);
         }
 
-        self.buffer.drain(0..prefix_length);
-        let data: Vec<u8> = self.buffer.drain(0..data_length).collect();
+        if self.start_idx + prefix_length + data_length > self.buffer.len() {
+            return Err(ParseError::NeedMoreData);
+        }
+
+        let data: Vec<u8> = self.buffer
+            [self.start_idx + prefix_length..self.start_idx + prefix_length + data_length]
+            .to_vec();
+        self.start_idx += prefix_length + data_length;
 
         Ok(data)
     }
@@ -125,14 +136,13 @@ impl<R: Read> CommandStream<R> {
 impl<R: Read> Iterator for CommandStream<R> {
     type Item = Command;
 
-    // TODO: None is returned both upon reader error and invalid command => bad!
     fn next(&mut self) -> Option<Self::Item> {
         match self.parse_command() {
             Ok(command) => return Some(command),
             Err(ParseError::InvalidPrefix) => return None,
             _ => (),
         }
-        let mut read_buf = [0; 2048];
+        let mut read_buf = [0; 4096];
         loop {
             match self.reader.read(&mut read_buf) {
                 Ok(0) => {
@@ -145,7 +155,6 @@ impl<R: Read> Iterator for CommandStream<R> {
                     return self.parse_command().ok();
                 }
                 Ok(n) => {
-                    eprintln!("Nonzero read");
                     self.buffer.extend_from_slice(&read_buf[..n]);
                     match self.parse_command() {
                         Ok(command) => return Some(command),
@@ -154,8 +163,7 @@ impl<R: Read> Iterator for CommandStream<R> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error: {e}");
-                    return None;
+                    panic!("Error: {}", e);
                 }
             }
         }
