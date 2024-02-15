@@ -1,6 +1,6 @@
 use std::{fmt::Debug, io::Read};
 
-const BUF_SIZE: usize = 1 << 25;
+const BUF_SIZE: usize = 1 << 12;
 const MAX_DATA_LEN: usize = 1 << 25;
 
 #[derive(Clone)]

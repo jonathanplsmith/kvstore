@@ -1,20 +1,40 @@
+use clap::Parser;
 use kvstore::{encode, parse::CommandStream, store::KVStore};
 use std::{
     error::Error,
     io::{self, BufReader, BufWriter, Write},
-    net::{TcpListener, TcpStream},
+    net::{Ipv4Addr, TcpListener, TcpStream, ToSocketAddrs},
     sync::{Arc, Mutex},
 };
 use threadpool::ThreadPool;
 
-const ADDRESS: &str = "127.0.0.1:5555";
-const NUM_THREADS: usize = 32;
+const DEFAULT_NUM_THREADS: usize = 32;
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Config {
+    #[arg(default_value_t = Ipv4Addr::new(127, 0, 0, 1))]
+    address: Ipv4Addr,
+
+    #[arg(default_value_t = 5555)]
+    port: u16,
+
+    #[arg(short, long)]
+    threads: Option<usize>,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let listener =
-        TcpListener::bind(ADDRESS).unwrap_or_else(|_| panic!("Error listening on {ADDRESS}"));
+    let config: Config = Config::parse();
 
-    let pool = ThreadPool::new(NUM_THREADS);
+    let socket_addr = (config.address, config.port)
+        .to_socket_addrs()?
+        .next()
+        .unwrap(); // okay, as parser makes sure values in range
+    let num_threads = config.threads.unwrap_or(DEFAULT_NUM_THREADS);
+    let listener = TcpListener::bind(socket_addr)
+        .unwrap_or_else(|e| panic!("Error listening on {socket_addr}: {e}"));
+
+    let pool = ThreadPool::new(num_threads);
     let store = Arc::new(Mutex::new(KVStore::new()));
 
     for stream in listener.incoming() {
